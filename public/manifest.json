@@ -1,0 +1,12 @@
+{
+  "name": "Owings Hill CMMS",
+  "short_name": "OH CMMS",
+  "description": "Maintenance dashboard for systems, tasks, and contractor operations.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#020617",
+  "lang": "en",
+  "orientation": "portrait",
+  "icons": []
+}
