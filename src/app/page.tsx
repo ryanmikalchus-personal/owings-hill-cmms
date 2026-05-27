@@ -35,11 +35,20 @@ type TaskRow = {
   systems: System | System[] | null;
 };
 
+type TaskStatus = "Due Now" | "Upcoming" | "Future" | "Completed";
+
 const tabs: { key: TabKey; label: string }[] = [
   { key: "agenda", label: "Agenda" },
   { key: "infrastructure", label: "Infrastructure" },
   { key: "vendors", label: "Vendors" },
 ];
+
+const taskStatusPriority: Record<TaskStatus, number> = {
+  "Due Now": 0,
+  Upcoming: 1,
+  Future: 2,
+  Completed: 3,
+};
 
 const cardClass =
   "rounded-2xl border border-slate-200 bg-white p-4 shadow-sm dark:border-slate-800 dark:bg-slate-900/70";
@@ -64,6 +73,40 @@ function getSystemFromTask(task: TaskRow): System | null {
   return Array.isArray(task.systems) ? task.systems[0] ?? null : task.systems;
 }
 
+function wasCompletedThisCycle(lastCompleted: string | null, currentMonth: number, currentYear: number) {
+  if (!lastCompleted) {
+    return false;
+  }
+
+  const completedDate = new Date(lastCompleted);
+  if (Number.isNaN(completedDate.getTime())) {
+    return false;
+  }
+
+  return (
+    completedDate.getMonth() + 1 === currentMonth &&
+    completedDate.getFullYear() === currentYear
+  );
+}
+
+function getTaskStatus(task: TaskRow, currentMonth: number, currentYear: number): TaskStatus {
+  const isCompletedThisCycle = wasCompletedThisCycle(task.last_completed, currentMonth, currentYear);
+  if (isCompletedThisCycle) {
+    return "Completed";
+  }
+
+  if (task.next_due_month === currentMonth || task.next_due_month === 0) {
+    return "Due Now";
+  }
+
+  const nextMonth = (currentMonth % 12) + 1;
+  if (task.next_due_month === nextMonth) {
+    return "Upcoming";
+  }
+
+  return "Future";
+}
+
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabKey>("agenda");
   const [systems, setSystems] = useState<System[]>([]);
@@ -78,6 +121,8 @@ export default function Page() {
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [contractorsError, setContractorsError] = useState<string | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
+  const currentMonth = new Date().getMonth() + 1;
+  const currentYear = new Date().getFullYear();
 
   useEffect(() => {
     const supabase = getSupabaseClient();
@@ -133,13 +178,37 @@ export default function Page() {
     void loadDashboardData();
   }, []);
 
+  const taskStatuses = useMemo(() => {
+    return Object.fromEntries(
+      tasks.map((task) => [task.id, getTaskStatus(task, currentMonth, currentYear)]),
+    ) as Record<string, TaskStatus>;
+  }, [tasks, currentMonth, currentYear]);
+
+  const dueNowCount = useMemo(() => {
+    return tasks.reduce((count, task) => {
+      return taskStatuses[task.id] === "Due Now" ? count + 1 : count;
+    }, 0);
+  }, [tasks, taskStatuses]);
+
   const sortedTasks = useMemo(() => {
     return [...tasks].sort((a, b) => {
+      const aStatus = taskStatuses[a.id] ?? "Future";
+      const bStatus = taskStatuses[b.id] ?? "Future";
+      const statusDiff = taskStatusPriority[aStatus] - taskStatusPriority[bStatus];
+      if (statusDiff !== 0) {
+        return statusDiff;
+      }
+
       const aValue = a.next_due_month ?? Number.MAX_SAFE_INTEGER;
       const bValue = b.next_due_month ?? Number.MAX_SAFE_INTEGER;
-      return aValue - bValue;
+      const dueMonthDiff = aValue - bValue;
+      if (dueMonthDiff !== 0) {
+        return dueMonthDiff;
+      }
+
+      return a.title.localeCompare(b.title);
     });
-  }, [tasks]);
+  }, [tasks, taskStatuses]);
 
   function toggleTask(taskId: string) {
     setExpandedTaskIds((current) => ({
@@ -201,6 +270,23 @@ export default function Page() {
           {activeTab === "agenda" ? (
             <>
               <h2 className="text-lg font-semibold">Maintenance Agenda</h2>
+              {!isLoading && !tasksError ? (
+                <article
+                  className={`${cardClass} ${
+                    dueNowCount === 0
+                      ? "border-emerald-500/40 bg-emerald-500/10"
+                      : "border-red-500/40 bg-red-500/10"
+                  }`}
+                >
+                  <p
+                    className={`text-sm font-medium ${
+                      dueNowCount === 0 ? "text-emerald-300" : "text-red-300"
+                    }`}
+                  >
+                    You have {dueNowCount} tasks due this month.
+                  </p>
+                </article>
+              ) : null}
               {tasksError ? <p className="text-sm text-red-400">{tasksError}</p> : null}
               {isLoading ? <p className="text-sm text-slate-500">Loading tasks...</p> : null}
               {!isLoading && !tasksError && sortedTasks.length === 0 ? (
@@ -210,7 +296,8 @@ export default function Page() {
                 {sortedTasks.map((task) => {
                   const taskSystem = getSystemFromTask(task);
                   const isExpanded = Boolean(expandedTaskIds[task.id]);
-                  const isCompleted = Boolean(task.last_completed);
+                  const taskStatus = taskStatuses[task.id] ?? "Future";
+                  const isCompleted = taskStatus === "Completed";
                   const showVendorPrompt =
                     task.assignment === "HIRE" || task.assignment === "BOTH";
 
@@ -229,13 +316,30 @@ export default function Page() {
                         className="flex w-full items-start justify-between gap-3 text-left"
                       >
                         <div>
-                          <h3
-                            className={`text-base font-semibold ${
-                              isCompleted ? "line-through decoration-2" : ""
-                            }`}
-                          >
-                            {task.title}
-                          </h3>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h3
+                              className={`text-base font-semibold ${
+                                isCompleted ? "line-through decoration-2" : ""
+                              }`}
+                            >
+                              {task.title}
+                            </h3>
+                            {taskStatus === "Due Now" ? (
+                              <span className="rounded-full bg-red-500 px-2 py-1 text-xs font-semibold text-red-50 animate-pulse">
+                                🔴 DUE NOW
+                              </span>
+                            ) : null}
+                            {taskStatus === "Upcoming" ? (
+                              <span className="rounded-full bg-amber-500/30 px-2 py-1 text-xs font-semibold text-amber-200">
+                                🟡 Coming Up
+                              </span>
+                            ) : null}
+                            {taskStatus === "Completed" ? (
+                              <span className="rounded-full bg-emerald-500/20 px-2 py-1 text-xs font-semibold text-emerald-300">
+                                🟢 Done
+                              </span>
+                            ) : null}
+                          </div>
                           <p className="text-sm text-slate-600 dark:text-slate-400">
                             {taskSystem?.name ?? "Unassigned system"}
                           </p>
