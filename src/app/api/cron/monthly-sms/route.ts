@@ -7,8 +7,6 @@ const supabase = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 );
 
-const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   if (searchParams.get('secret') !== process.env.CRON_SECRET) {
@@ -32,6 +30,16 @@ export async function GET(request: Request) {
   });
 
   const recipients = [process.env.MY_PHONE_NUMBER!, process.env.WIFE_PHONE_NUMBER!];
+
+  // Moving initialization safely inside the handler function stops build crashes
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  
+  if (!accountSid || !accountSid.startsWith('AC')) {
+    return NextResponse.json({ success: false, error: 'Invalid or missing TWILIO_ACCOUNT_SID configuration' }, { status: 500 });
+  }
+  
+  const twilioClient = twilio(accountSid, authToken);
 
   for (const phone of recipients) {
     if (phone) {
