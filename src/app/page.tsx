@@ -107,6 +107,27 @@ function getTaskStatus(task: TaskRow, currentMonth: number, currentYear: number)
   return "Future";
 }
 
+function getResetDueMonth(frequency: string | null, currentMonth: number): number | null {
+  if (!frequency) {
+    return null;
+  }
+
+  const normalizedFrequency = frequency.toLowerCase();
+  let monthIncrement = 0;
+
+  if (normalizedFrequency.includes("quarterly")) {
+    monthIncrement = 3;
+  } else if (normalizedFrequency.includes("2-3 months")) {
+    monthIncrement = 2;
+  }
+
+  if (monthIncrement === 0) {
+    return null;
+  }
+
+  return ((currentMonth - 1 + monthIncrement) % 12) + 1;
+}
+
 export default function Page() {
   const [activeTab, setActiveTab] = useState<TabKey>("agenda");
   const [systems, setSystems] = useState<System[]>([]);
@@ -224,27 +245,34 @@ export default function Page() {
     }));
   }
 
-  async function handleMarkComplete(taskId: string) {
-    const completedAt = new Date().toISOString();
-    const previousTasks = tasks;
+  async function handleMarkComplete(task: TaskRow) {
+    const isUndoAction = Boolean(task.last_completed);
+    const completedAt = isUndoAction ? null : new Date().toISOString();
+    const resetDueMonth = isUndoAction
+      ? task.next_due_month
+      : getResetDueMonth(task.frequency, currentMonth) ?? task.next_due_month;
+    const updatePayload = {
+      last_completed: completedAt,
+      next_due_month: resetDueMonth,
+    };
 
     setUpdateError(null);
-    setUpdatingTaskId(taskId);
-    setTasks((current) =>
-      current.map((task) =>
-        task.id === taskId ? { ...task, last_completed: completedAt } : task,
-      ),
-    );
+    setUpdatingTaskId(task.id);
 
     const supabase = getSupabaseClient();
     const { error } = await supabase
       .from("tasks")
-      .update({ last_completed: completedAt })
-      .eq("id", taskId);
+      .update(updatePayload)
+      .eq("id", task.id);
 
     if (error) {
-      setTasks(previousTasks);
-      setUpdateError("Could not mark the task as complete. Try again.");
+      setUpdateError("Could not update the task status. Try again.");
+    } else {
+      setTasks((current) =>
+        current.map((existingTask) =>
+          existingTask.id === task.id ? { ...existingTask, ...updatePayload } : existingTask,
+        ),
+      );
     }
 
     setUpdatingTaskId(null);
@@ -366,20 +394,22 @@ export default function Page() {
                       </div>
 
                       <div className="mt-3">
-                        {isCompleted && task.last_completed ? (
-                          <span className="inline-flex rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300">
-                            Completed on {formatCompletedDate(task.last_completed)}
-                          </span>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() => void handleMarkComplete(task.id)}
-                            disabled={updatingTaskId === task.id}
-                            className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/25 disabled:opacity-70"
-                          >
-                            {updatingTaskId === task.id ? "Saving..." : "Mark as Complete"}
-                          </button>
-                        )}
+                        <button
+                          type="button"
+                          onClick={() => void handleMarkComplete(task)}
+                          disabled={updatingTaskId === task.id}
+                          className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition disabled:opacity-70 ${
+                            task.last_completed
+                              ? "border-slate-400/50 bg-slate-200/20 text-slate-300 hover:bg-slate-200/30"
+                              : "border-emerald-500/40 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+                          }`}
+                        >
+                          {updatingTaskId === task.id
+                            ? "Saving..."
+                            : task.last_completed
+                              ? `Completed on ${formatCompletedDate(task.last_completed)} - Click to Undo`
+                              : "Mark as Complete"}
+                        </button>
                       </div>
 
                       {isExpanded ? (
