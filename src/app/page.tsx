@@ -34,6 +34,8 @@ type TaskRow = {
   frequency: string | null;
   system_id: string | null;
   materials: string | null;
+  reason: string | null;
+  instructions: string | null;
   assignment: string | null;
   next_due_month: number | null;
   is_critical: boolean | null;
@@ -284,7 +286,9 @@ export default function Page() {
 
       const tasksQuery = supabase
         .from("tasks")
-        .select("*, systems(*)")
+        .select(
+          "id, title, frequency, system_id, materials, reason, instructions, assignment, next_due_month, is_critical, last_completed, estimated_cost, systems(*)",
+        )
         .order("next_due_month", { ascending: true, nullsFirst: false });
 
       const contractorsQuery = supabase
@@ -686,6 +690,8 @@ export default function Page() {
                 const isCompleted = taskStatus === "Completed";
                 const showVendorPrompt = task.assignment === "HIRE" || task.assignment === "BOTH";
                 const canUndo = Boolean(completionSnapshots[task.id]);
+                const reasonText = task.reason?.trim();
+                const instructionsText = task.instructions?.trim();
 
                 return (
                   <article
@@ -756,34 +762,6 @@ export default function Page() {
                       ) : null}
                     </div>
 
-                    <div className="mt-3 flex flex-wrap gap-2">
-                      {!isCompleted ? (
-                        <button
-                          type="button"
-                          onClick={() => openCompletionModal(task)}
-                          disabled={updatingTaskId === task.id}
-                          className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/25 disabled:opacity-70"
-                        >
-                          {updatingTaskId === task.id ? "Saving..." : "Mark as Complete"}
-                        </button>
-                      ) : null}
-                      {isCompleted ? (
-                        <>
-                          <span className="rounded-lg border border-slate-400/50 bg-slate-200/20 px-3 py-1.5 text-sm text-slate-300">
-                            Completed on {task.last_completed ? formatCompletedDate(task.last_completed) : "today"}
-                          </span>
-                          <button
-                            type="button"
-                            onClick={() => void handleUndoCompletion(task)}
-                            disabled={updatingTaskId === task.id || !canUndo}
-                            className="rounded-lg border border-slate-400/50 bg-slate-200/20 px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-200/30 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {updatingTaskId === task.id ? "Reverting..." : "Undo"}
-                          </button>
-                        </>
-                      ) : null}
-                    </div>
-
                     {isExpanded ? (
                       <div className="mt-4 space-y-3 border-t border-slate-200 pt-4 dark:border-slate-800">
                         <div>
@@ -798,11 +776,66 @@ export default function Page() {
                             {task.assignment ?? "Not set"}
                           </p>
                         </div>
-                        {showVendorPrompt ? (
-                          <p className="rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-2 text-sm text-sky-200">
-                            Vendor needed. Check the Vendors tab for contacts.
-                          </p>
+                        {reasonText ? (
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-slate-500">
+                              Why it matters
+                            </p>
+                            <p className="mt-1 text-sm italic text-slate-600 dark:text-slate-300">
+                              {reasonText}
+                            </p>
+                          </div>
                         ) : null}
+                        {instructionsText ? (
+                          <div>
+                            <p className="text-xs uppercase tracking-wide text-slate-500">How to do it</p>
+                            <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
+                              {instructionsText}
+                            </p>
+                          </div>
+                        ) : null}
+                        {showVendorPrompt ? (
+                          <div className="space-y-2 rounded-lg border border-sky-500/35 bg-sky-500/10 px-3 py-2">
+                            <p className="text-sm text-sky-200">
+                              Vendor needed. Check the Vendors tab for contacts.
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => setActiveTab("vendors")}
+                              className="rounded-lg border border-sky-500/45 bg-sky-500/20 px-3 py-1.5 text-sm font-medium text-sky-100 transition hover:bg-sky-500/30"
+                            >
+                              Find Vendor
+                            </button>
+                          </div>
+                        ) : null}
+                        <div className="flex flex-wrap gap-2">
+                          {!isCompleted ? (
+                            <button
+                              type="button"
+                              onClick={() => openCompletionModal(task)}
+                              disabled={updatingTaskId === task.id}
+                              className="rounded-lg border border-emerald-500/40 bg-emerald-500/15 px-3 py-1.5 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/25 disabled:opacity-70"
+                            >
+                              {updatingTaskId === task.id ? "Saving..." : "Mark as Complete"}
+                            </button>
+                          ) : null}
+                          {isCompleted ? (
+                            <>
+                              <span className="rounded-lg border border-slate-400/50 bg-slate-200/20 px-3 py-1.5 text-sm text-slate-300">
+                                Completed on{" "}
+                                {task.last_completed ? formatCompletedDate(task.last_completed) : "today"}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => void handleUndoCompletion(task)}
+                                disabled={updatingTaskId === task.id || !canUndo}
+                                className="rounded-lg border border-slate-400/50 bg-slate-200/20 px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-200/30 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {updatingTaskId === task.id ? "Reverting..." : "Undo"}
+                              </button>
+                            </>
+                          ) : null}
+                        </div>
                         {taskSystem?.specs ? (
                           <div className="rounded-lg border border-slate-300 bg-slate-200/70 p-3 text-sm text-slate-800 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200">
                             <p className="font-medium">System Specs</p>
